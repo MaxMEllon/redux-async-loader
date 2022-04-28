@@ -72,6 +72,7 @@ class ReduxAsyncLoaderContext extends Component {
         return { ...state, routes: props.routes, params: props.params, location: props.location, asyncStatus: "completed", loadCount: state.loadCount + 1, loadErr: null, children: null }
       }
     }
+    return { ...state, routes: props.routes, params: props.params, location: props.location }
   }
 
   componentDidUpdate(props, state) {
