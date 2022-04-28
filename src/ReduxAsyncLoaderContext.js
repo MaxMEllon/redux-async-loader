@@ -21,12 +21,20 @@ class ReduxAsyncLoaderContext extends Component {
 
     this.state = {
       children: null,
+      location: props.location,
+      params: props.params,
+      routes: props.routes,
+      mounted: false,
+      asyncStatus: "completed",
+      loadCount: 0,
+      loadErr: null,
     };
-    this.loadCount = 0;
+    // this.loadCount = 0;
   }
 
   componentDidMount() {
     const { loading, loaded, onServer } = this.getAsyncLoaderState();
+    this.setState({ ...this.state, mounted: true })
     if (loading) {
       return;
     }
@@ -40,36 +48,70 @@ class ReduxAsyncLoaderContext extends Component {
     this.loadAsync(this.props);
   }
 
-  componentWillReceiveProps(nextProps) {
-    if (nextProps.location === this.props.location) {
-      return;
-    }
+  static getDerivedStateFromProps(props, state) {
+    // if (props.location === state.location) {
+    //   return {
+    //     ...state,
+    //     routes: props.routes,
+    //     params: props.params,
+    //     location: props.location,
+    //     children: props.children
+    //   }
+    // }
 
-    const enterRoutes = computeChangedRoutes(
-      {
-        routes: this.props.routes,
-        params: this.props.params,
-        location: this.props.location,
-      },
-      {
-        routes: nextProps.routes,
-        params: nextProps.params,
-        location: nextProps.location,
+    const dispatch = props.ctx.store.dispatch
+    console.log("gDSFP", state.asyncStatus)
+    switch (state.asyncStatus) {
+      case "completed": {
+        dispatch(beginAsyncLoad())
+        return { ...state, routes: props.routes, params: props.params, location: props.location, asyncStatus: "begin-load", loadCount: state.loadCount + 1, children: props.children }
       }
-    );
-
-    const indexDiff = nextProps.components.length - enterRoutes.length;
-    const components = enterRoutes.map(
-      (_route, index) => nextProps.components[indexDiff + index]
-    );
-
-    this.loadAsync(Object.assign({}, nextProps, { components }));
+      case "end-load": {
+        if (state.loadErr) props.onError(state.loadErr)
+        dispatch(endAsyncLoad())
+        return { ...state, routes: props.routes, params: props.params, location: props.location, asyncStatus: "completed", loadCount: state.loadCount + 1, loadErr: null, children: null }
+      }
+    }
   }
 
-  shouldComponentUpdate() {
-    const { loading } = this.getAsyncLoaderState();
-    return !loading;
+  componentDidUpdate(props, state) {
+    if (this.state.asyncStatus === "begin-load") {
+      const { store } = props.ctx
+      const { dispatch } = store
+
+      const enterRoutes = computeChangedRoutes(
+        {
+          routes: this.state.routes,
+          params: this.state.params,
+          location: this.state.location,
+        },
+        {
+          routes: this.props.routes,
+          params: this.props.params,
+          location: this.props.location,
+        }
+      );
+
+      const indexDiff = this.props.components.length - enterRoutes.length;
+      const components = flattenComponents(enterRoutes.map(
+        (_route, index) => this.props.components[indexDiff + index]
+      ));
+
+      loadAsync(components, this.props, store).then(
+        () => {
+          this.setState({ ...state, routes: this.props.routes, params: this.props.params, location: this.props.location, asyncStatus: "end-load", loadCount: this.state.loadCount + 1  })
+        },
+        (err) => {
+          this.setState({ ...state, routes: this.props.routes, params: this.props.params, location: this.props.location, asyncStatus: "end-load", loadCount: this.state.loadCount + 1, loadErr: err  })
+        }
+      )
+    }
   }
+
+  // shouldComponentUpdate() {
+  //   const { loading } = this.getAsyncLoaderState();
+  //   return !loading;
+  // }
 
   getAsyncLoaderState() {
     const { getAsyncLoaderState } = this.props;
@@ -77,46 +119,46 @@ class ReduxAsyncLoaderContext extends Component {
     return getAsyncLoaderState(getState());
   }
 
-  loadAsync(props) {
-    const { children, components } = props;
-
-    const flattened = flattenComponents(components);
-    if (!flattened.length) {
-      return;
-    }
-
-    const { store } = this.props.ctx;
-    const { dispatch } = store;
-    this.beginLoad(dispatch, children)
-      .then(() => loadAsync(flattened, props, store))
-      .then(
-        () => this.endLoad(dispatch),
-        (error) => this.endLoad(dispatch, error)
-      );
-  }
-
-  beginLoad(dispatch, children) {
-    if (this.loadCount === 0) {
-      dispatch(beginAsyncLoad());
-    }
-
-    ++this.loadCount;
-    return new Promise((resolve) => {
-      this.setState({ children }, () => resolve());
-    });
-  }
-
-  endLoad(dispatch, error) {
-    if (error) {
-      this.props.onError(error);
-    }
-
-    --this.loadCount;
-    if (this.loadCount === 0) {
-      dispatch(endAsyncLoad());
-      this.setState({ children: null });
-    }
-  }
+  // loadAsync(props) {
+  //   const { children, components } = props;
+  //
+  //   const flattened = flattenComponents(components);
+  //   if (!flattened.length) {
+  //     return;
+  //   }
+  //
+  //   const { store } = this.props.ctx;
+  //   const { dispatch } = store;
+  //   this.beginLoad(dispatch, children)
+  //     .then(() => loadAsync(flattened, props, store))
+  //     .then(
+  //       () => this.endLoad(dispatch),
+  //       (error) => this.endLoad(dispatch, error)
+  //     );
+  // }
+  //
+  // beginLoad(dispatch, children) {
+  //   if (this.loadCount === 0) {
+  //     dispatch(beginAsyncLoad());
+  //   }
+  //
+  //   ++this.loadCount;
+  //   return new Promise((resolve) => {
+  //     this.setState({ children }, () => resolve());
+  //   });
+  // }
+  //
+  // endLoad(dispatch, error) {
+  //   if (error) {
+  //     this.props.onError(error);
+  //   }
+  //
+  //   --this.loadCount;
+  //   if (this.loadCount === 0) {
+  //     dispatch(endAsyncLoad());
+  //     this.setState({ children: null });
+  //   }
+  // }
 
   render() {
     const { loading } = this.getAsyncLoaderState();
